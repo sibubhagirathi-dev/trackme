@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Tracking - Uber/Ola Style</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 100vh; width: 100%; }
+    .controls {
+      position: absolute; top: 10px; left: 10px;
+      z-index: 1000;
+      background: white; padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    input, button {
+      margin: 5px 0; padding: 8px 12px; border-radius: 6px; border: none;
+    }
+    .track-btn { background: #007bff; color: white; cursor: pointer; }
+    .emergency-btn { background: #dc3545; color: white; cursor: pointer; }
+    #distance { margin-top: 8px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="controls">
+    <button class="track-btn" onclick="shareLocation()">Share My Location</button>
+    <input type="text" id="codeInput" placeholder="Enter Client Code">
+    <button class="track-btn" onclick="trackClient()">Track Client</button>
+    <button class="emergency-btn" onclick="sendEmergency()">🚨 Emergency</button>
+    <div id="shareCode"></div>
+    <div id="distance">Distance: N/A</div>
+  </div>
+
+  <script>
+    // ===== Firebase config =====
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "tracking-8d49d.firebaseapp.com",
+      databaseURL: "https://tracking-8d49d-default-rtdb.firebaseio.com",
+      projectId: "tracking-8d49d",
+      storageBucket: "tracking-8d49d.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // ===== Leaflet map =====
+    const map = L.map('map').setView([20.5937, 78.9629], 5); // India center
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    let userMarker, clientMarker, userLatLng, clientLatLng;
+    let currentCode = null;
+
+    // ===== Generate random 6-char code =====
+    function generateCode() {
+      return Math.random().toString(36).substr(2, 6).toUpperCase();
+    }
+
+    // ===== Share location =====
+    function shareLocation() {
+      currentCode = generateCode();
+      document.getElementById("shareCode").innerText = "Share Code: " + currentCode;
+
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition((pos) => {
+          clientLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          db.ref("locations/" + currentCode).set(clientLatLng);
+
+          if (!clientMarker) {
+            clientMarker = L.marker(clientLatLng).addTo(map).bindPopup("You (Client)").openPopup();
+            map.setView(clientLatLng, 14);
+          } else {
+            clientMarker.setLatLng(clientLatLng);
+          }
+        }, (err) => alert("Error getting location: " + err.message), { enableHighAccuracy: true });
+      } else {
+        alert("Geolocation not supported by browser");
+      }
+    }
+
+    // ===== Track client =====
+    function trackClient() {
+      const code = document.getElementById("codeInput").value.trim();
+      if (!code) return alert("Enter a code!");
+
+      // Track client location from Firebase
+      db.ref("locations/" + code).on("value", (snapshot) => {
+        if (snapshot.exists()) {
+          const loc = snapshot.val();
+          clientLatLng = L.latLng(loc.lat, loc.lng);
+
+          if (!clientMarker) {
+            clientMarker = L.marker(clientLatLng, { color: 'red' }).addTo(map).bindPopup("Client");
+            map.setView(clientLatLng, 14);
+          } else {
+            clientMarker.setLatLng(clientLatLng);
+          }
+          updateDistance();
+        } else {
+          alert("Invalid code or client not sharing location");
+        }
+      });
+
+      // Track user own location
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition((pos) => {
+          userLatLng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+          if (!userMarker) {
+            userMarker = L.marker(userLatLng).addTo(map).bindPopup("You");
+          } else {
+            userMarker.setLatLng(userLatLng);
+          }
+          updateDistance();
+        }, (err) => alert("Error getting your location: " + err.message), { enableHighAccuracy: true });
+      }
+    }
+
+    // ===== Calculate distance =====
+    function updateDistance() {
+      if (userLatLng && clientLatLng) {
+        const distance = userLatLng.distanceTo(clientLatLng) / 1000; // km
+        document.getElementById("distance").innerText = `Distance: ${distance.toFixed(2)} km`;
+      }
+    }
+
+    // ===== Emergency =====
+    function sendEmergency() {
+      if (userLatLng) {
+        alert(`🚨 Emergency! Your location: ${userLatLng.lat}, ${userLatLng.lng}`);
+        // Optional: send location to server/emergency contact
+      } else {
+        alert("Your location not available yet!");
+      }
+    }
+  </script>
+</body>
+</html>
